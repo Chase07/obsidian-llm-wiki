@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Markdown embedded-image analysis (Issue #608).** Opt-in local vault image embeds (`![[...]]` and `![...](...)`) are resolved through Obsidian, read without downloading remote URLs, and sent with the extraction request to vision-capable providers. The limit is 10 images at 10 MiB each; missing, unsupported, oversized, and duplicate files leave text ingestion intact.
+
 ## [1.27.2] - 2026-09-15
 
 39 merge commits since v1.27.1 (2026-09-06 → 09-15, 128 files, +4243/−1802 LOC, 3993 → 4144 tests). **PATCH** — a rewrite cut off at the token limit no longer overwrites a page (#704), one shape for `updated_pages` so link repointing sees every page (#713), provenance footnote brackets repaired (#702), corporate-gateway structured-output demotion (#711), strict structured-output as a negotiated tier (#658), ingest lifecycle released on skip (#688), cancel reaches the running model call (#646), plus the wave-C correctness wave (#644-#684) and a main-is-red regression fixed at the source (#722).
