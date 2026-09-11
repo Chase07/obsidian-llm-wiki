@@ -337,6 +337,7 @@ export class OpenAICompatSdkClient implements LLMClient {
         model: languageModel,
         ...(system ? { system } : {}),
         messages,
+        ...(abortSignal ? { abortSignal } : {}),
         maxOutputTokens: max_tokens,
         ...outputArgs,
         providerOptions: this.buildProviderOptions({
