@@ -189,6 +189,7 @@ export class OpenAISdkClient implements LLMClient {
         model: languageModel,
         ...(system ? { system } : {}),
         messages,
+        ...(abortSignal ? { abortSignal } : {}),
         maxOutputTokens: max_tokens,
         // Provider-specific options (OpenAI: reasoning effort + thinking).
         // Type: AI-SDK's SharedV3ProviderOptions is a deeply-typed JSON
