@@ -47,6 +47,7 @@ import { getSourceLanguage, isCrossLanguage } from '../core/source-language';
 import { cleanMarkdownResponse } from '../core/markdown';
 import { stampSourcePageHead } from '../core/source-page-head';
 import { injectMentionsSection } from '../core/mentions-injector';
+import { injectEmbeddedImageEvidenceSection } from '../core/embedded-image-evidence';
 import { SchemaManager, SchemaTask } from '../schema/schema-manager';
 import {
   buildSystemPrompt,
@@ -1844,6 +1845,11 @@ export class WikiEngine {
         sectionLabel: getSectionLabels(this.settings).mentions_in_source,
         maxChars: SOURCE_PAGE_MENTIONS_MAX_CHARS,
       },
+    );
+    finalContent = injectEmbeddedImageEvidenceSection(
+      finalContent,
+      this.settings.saveEmbeddedImageEvidence ? analysis.embedded_image_analysis : undefined,
+      getSectionLabels(this.settings).embedded_image_evidence,
     );
 
     // Stage 4 (#568): the source page no longer mirrors the note's tags into
