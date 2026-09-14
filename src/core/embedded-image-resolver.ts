@@ -6,6 +6,7 @@ const IMAGE_MEDIA_TYPES = {
 
 export const EMBEDDED_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const EMBEDDED_IMAGE_PACKAGE_MAX_BYTES = 20 * 1024 * 1024;
+export const EMBEDDED_IMAGE_PACKAGE_MAX_COUNT = 8;
 export const EMBEDDED_IMAGE_CONTEXT_MAX_CHARS = 500;
 
 export type EmbeddedImageSkipReason = 'duplicate' | 'missing' | 'oversized' | 'remote' | 'unsupported' | 'gif-decode-failed';
@@ -143,12 +144,16 @@ export async function discoverEmbeddedImages(ctx: EmbeddedImageDiscoveryContext)
 }
 
 /** Split discovered images without imposing a per-note image-count limit. */
-export function packageEmbeddedImages(candidates: EmbeddedImageCandidate[], maxBytes: number = EMBEDDED_IMAGE_PACKAGE_MAX_BYTES): EmbeddedImageCandidate[][] {
+export function packageEmbeddedImages(
+  candidates: EmbeddedImageCandidate[],
+  maxBytes: number = EMBEDDED_IMAGE_PACKAGE_MAX_BYTES,
+  maxCount: number = EMBEDDED_IMAGE_PACKAGE_MAX_COUNT,
+): EmbeddedImageCandidate[][] {
   const packages: EmbeddedImageCandidate[][] = [];
   let current: EmbeddedImageCandidate[] = [];
   let currentBytes = 0;
   for (const candidate of candidates) {
-    if (current.length > 0 && currentBytes + candidate.byteLength > maxBytes) {
+    if (current.length > 0 && (current.length >= maxCount || currentBytes + candidate.byteLength > maxBytes)) {
       packages.push(current);
       current = [];
       currentBytes = 0;

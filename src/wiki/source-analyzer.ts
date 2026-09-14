@@ -13,6 +13,7 @@ import {
   EmbeddedImageAnalysisReport,
   EmbeddedImageEvidence,
   LLMClient,
+  MessageContentPart,
 } from '../types';
 import { PROMPTS } from '../prompts';
 import { parseJsonResponse, parseJsonResult } from '../core/json';
@@ -887,19 +888,26 @@ export class SourceAnalyzer {
       report.packages++;
       report.sent += parts.length;
       console.debug(`[embedded-images] package ${packageIndex + 1}/${packages.length}: ${parts.length} image(s), ${byteLength} bytes`);
-      const positions = parts.map(({ image }) => [
-        `Image ${image.index}`,
-        `Path: ${image.path}`,
-        `Text before image: ${image.contextBefore || '(none)'}`,
-        `Text after image: ${image.contextAfter || '(none)'}`,
-      ].join('\n')).join('\n\n');
+      const visionContent: MessageContentPart[] = [{ type: 'text', text: PROMPTS.analyzeEmbeddedImages }];
+      for (const { image, part } of parts) {
+        visionContent.push({
+          type: 'text',
+          text: [
+            `Image ${image.index}`,
+            `Path: ${image.path}`,
+            `Text before image: ${image.contextBefore || '(none)'}`,
+            `Text after image: ${image.contextAfter || '(none)'}`,
+            `The image content block immediately following this text is Image ${image.index}.`,
+          ].join('\n'),
+        }, part);
+      }
       try {
         const response = await client.createMessage({
           task: 'embedded-image-analysis',
           model,
           max_tokens: 3000,
           ...(system ? { system } : {}),
-          messages: [{ role: 'user', content: [{ type: 'text', text: `${PROMPTS.analyzeEmbeddedImages}\n\n${positions}` }, ...parts.map(({ part }) => part)] }],
+          messages: [{ role: 'user', content: visionContent }],
           response_format: { type: 'json_object' },
           ...(abortSignal ? { abortSignal } : {}),
           ...(this.ctx.settings.disableThinking === true ? { enableThinking: false } : {}),
@@ -907,9 +915,20 @@ export class SourceAnalyzer {
         const parsed = EmbeddedImageEvidenceSchema.safeParse(await parseJsonResponse(response));
         if (!parsed.success) throw new Error('Embedded image analysis returned an invalid images array');
         const packageIndexes = new Set(parts.map(({ image }) => image.index));
+        const returnedIndexes = new Set<number>();
+        const duplicateIndexes = new Set<number>();
+        const invalidIndexes = new Set<number>();
         const analyzedIndexes = new Set<number>();
         for (const item of parsed.data.images) {
-          if (!packageIndexes.has(item.index)) continue;
+          if (!packageIndexes.has(item.index)) {
+            invalidIndexes.add(item.index);
+            continue;
+          }
+          if (returnedIndexes.has(item.index)) {
+            duplicateIndexes.add(item.index);
+            continue;
+          }
+          returnedIndexes.add(item.index);
           const visibleText = (item.visible_text ?? '').trim();
           const description = (item.description ?? '').trim();
           const beforeRelevance = (item.before_relevance ?? '').trim();
@@ -930,6 +949,13 @@ export class SourceAnalyzer {
           }
         }
         report.analyzed += analyzedIndexes.size;
+        const missingIndexes = [...packageIndexes].filter(index => !returnedIndexes.has(index));
+        console.debug(`[embedded-images] package ${packageIndex + 1}/${packages.length} response: ${returnedIndexes.size}/${parts.length} record(s), ${analyzedIndexes.size} with evidence, ${missingIndexes.length} missing`);
+        if (duplicateIndexes.size > 0 || invalidIndexes.size > 0) {
+          console.warn('[embedded-images] ignored invalid response indexes:', {
+            duplicates: [...duplicateIndexes], invalid: [...invalidIndexes],
+          });
+        }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') throw error;
         if (!isVisionInputRejected(error)) throw error;
