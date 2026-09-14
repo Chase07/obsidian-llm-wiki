@@ -77,6 +77,16 @@ describe('embedded image resolver', () => {
     expect(packageEmbeddedImages(images, 20).map(group => group.map(image => image.index))).toEqual([[1, 2], [3]]);
   });
 
+  it('splits packages at eight images without imposing a note-wide limit', () => {
+    const images = Array.from({ length: 17 }, (_, offset) => ({
+      index: offset + 1, path: `${offset + 1}.png`, mediaType: 'image/png' as const, byteLength: 1,
+      sourceOffset: offset, contextBefore: '', contextAfter: '',
+    }));
+    expect(packageEmbeddedImages(images).map(group => group.map(image => image.index))).toEqual([
+      [1, 2, 3, 4, 5, 6, 7, 8], [9, 10, 11, 12, 13, 14, 15, 16], [17],
+    ]);
+  });
+
   it('encodes regular images and converts GIFs to a first-frame PNG', async () => {
     const png = await readEmbeddedImagePart({ index: 1, path: 'a.png', mediaType: 'image/png', byteLength: 4, sourceOffset: 0, contextBefore: '', contextAfter: '' }, { readBinary: async () => new Uint8Array([0, 1, 2, 3]) });
     const gif = await readEmbeddedImagePart({ index: 2, path: 'a.gif', mediaType: 'image/gif', byteLength: 4, sourceOffset: 0, contextBefore: '', contextAfter: '' }, { readBinary: async () => new Uint8Array([4]), gifFirstFrame: async () => new Uint8Array([5]) });

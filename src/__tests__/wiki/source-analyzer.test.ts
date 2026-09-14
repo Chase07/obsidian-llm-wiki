@@ -35,10 +35,13 @@ function run(
 describe('SourceAnalyzer', () => {
   it('analyzes resolved local embeds before text extraction without re-uploading images', async () => {
     const { ctx } = createMockContext({
-      vaultFiles: { [TEST_PATH]: 'Before chart\n\n![[assets/chart.png]]\n\nAfter chart' },
+      vaultFiles: { [TEST_PATH]: 'Before chart\n\n![[assets/chart.png]]\n\nBetween images\n\n![[assets/diagram.png]]\n\nAfter diagram' },
       settings: { analyzeEmbeddedImages: true },
       llmResponses: [
-        JSON.stringify({ images: [{ index: 1, visible_text: 'Chart title', description: 'A line chart.', before_relevance: 'related', after_relevance: 'unrelated', context_interpretation: 'The preceding caption explains the chart.' }] }),
+        JSON.stringify({ images: [
+          { index: 1, visible_text: 'Chart title', description: 'A line chart.', before_relevance: 'related', after_relevance: 'unrelated', context_interpretation: 'The preceding caption explains the chart.' },
+          { index: 2, visible_text: 'Diagram title', description: 'A diagram.', before_relevance: 'related', after_relevance: 'unrelated', context_interpretation: 'The between-text explains the diagram.' },
+        ] }),
         JSON.stringify({ entities: [], concepts: [] }),
       ],
     });
@@ -47,8 +50,11 @@ describe('SourceAnalyzer', () => {
       vault: { adapter: { readBinary: (path: string) => Promise<ArrayBuffer>; stat: (path: string) => Promise<{ size: number } | null> } };
     };
     app.metadataCache.getFirstLinkpathDest = (target, sourcePath) =>
-      target === 'assets/chart.png' && sourcePath === TEST_PATH ? { path: target } : null;
-    app.vault.adapter = { readBinary: async () => new Uint8Array([1, 2, 3]).buffer, stat: async () => ({ size: 3 }) };
+      sourcePath === TEST_PATH && ['assets/chart.png', 'assets/diagram.png'].includes(target) ? { path: target } : null;
+    app.vault.adapter = {
+      readBinary: async path => path === 'assets/chart.png' ? new Uint8Array([1, 2, 3]).buffer : new Uint8Array([4, 5, 6]).buffer,
+      stat: async () => ({ size: 3 }),
+    };
     const client = ctx.getClient()!;
     const spy = vi.spyOn(client, 'createMessage');
 
@@ -57,10 +63,13 @@ describe('SourceAnalyzer', () => {
     const visionContent = spy.mock.calls[0][0].messages[0].content;
     expect(visionContent).toEqual([
       expect.objectContaining({ type: 'text' }),
+      expect.objectContaining({ type: 'text', text: expect.stringContaining('Image 1') }),
       { type: 'image', image: 'AQID', mediaType: 'image/png' },
+      expect.objectContaining({ type: 'text', text: expect.stringContaining('Image 2') }),
+      { type: 'image', image: 'BAUG', mediaType: 'image/png' },
     ]);
-    expect((visionContent[0] as { text: string }).text).toContain('Text before image: Before chart');
-    expect((visionContent[0] as { text: string }).text).toContain('Text after image: After chart');
+    expect((visionContent[1] as { text: string }).text).toContain('Text before image: Before chart');
+    expect((visionContent[3] as { text: string }).text).toContain('Text before image: Between images');
     const extractionContent = spy.mock.calls[1][0].messages[0].content;
     if (typeof extractionContent !== 'string') throw new Error('Expected text-only extraction request');
     expect(extractionContent).toContain('## Embedded Image Visual Evidence');
@@ -68,6 +77,44 @@ describe('SourceAnalyzer', () => {
     expect(extractionContent).toContain('Context interpretation: The preceding caption explains the chart.');
     expect(extractionContent.split('## Embedded Image Visual Evidence')[1]).not.toContain('After chart');
     expect(spy.mock.calls[1][0].cacheBreakpoint).toBeDefined();
+  });
+
+  it('splits nine images into two visual requests and leaves missing evidence unassigned', async () => {
+    const imagePaths = Array.from({ length: 9 }, (_, offset) => `assets/${offset + 1}.png`);
+    const { ctx } = createMockContext({
+      vaultFiles: { [TEST_PATH]: imagePaths.map(path => `![[${path}]]`).join('\n\n') },
+      settings: { analyzeEmbeddedImages: true },
+      llmResponses: [
+        JSON.stringify({ images: [
+          { index: 1, description: 'First image.' },
+          { index: 1, description: 'Duplicate must be ignored.' },
+          { index: 99, description: 'Out of package.' },
+        ] }),
+        JSON.stringify({ images: [{ index: 9, description: 'Ninth image.' }] }),
+        JSON.stringify({ entities: [], concepts: [] }),
+      ],
+    });
+    const app = ctx.app as unknown as {
+      metadataCache: { getFirstLinkpathDest: (target: string) => { path: string } | null };
+      vault: { adapter: { readBinary: (path: string) => Promise<ArrayBuffer>; stat: () => Promise<{ size: number }> } };
+    };
+    app.metadataCache.getFirstLinkpathDest = target => imagePaths.includes(target) ? { path: target } : null;
+    app.vault.adapter = {
+      readBinary: async path => new Uint8Array([Number(path.match(/\d+/)?.[0])]).buffer,
+      stat: async () => ({ size: 1 }),
+    };
+    const client = ctx.getClient()!;
+    const spy = vi.spyOn(client, 'createMessage');
+
+    const result = await run(new SourceAnalyzer(ctx), TEST_PATH);
+
+    expect(spy).toHaveBeenCalledTimes(3);
+    expect((spy.mock.calls[0][0].messages[0].content as Array<{ type: string }>).filter(part => part.type === 'image')).toHaveLength(8);
+    expect((spy.mock.calls[1][0].messages[0].content as Array<{ type: string }>).filter(part => part.type === 'image')).toHaveLength(1);
+    expect(result?.embedded_image_analysis).toMatchObject({ packages: 2, sent: 9, analyzed: 2 });
+    expect(result?.embedded_image_analysis?.evidence[0]).toMatchObject({ status: 'analyzed', description: 'First image.' });
+    expect(result?.embedded_image_analysis?.evidence[1]).toMatchObject({ status: 'no-evidence' });
+    expect(result?.embedded_image_analysis?.evidence[8]).toMatchObject({ status: 'analyzed', description: 'Ninth image.' });
   });
 
   it('continues with text extraction when the endpoint rejects image input', async () => {
