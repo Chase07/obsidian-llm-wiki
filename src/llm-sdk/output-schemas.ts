@@ -357,6 +357,6 @@ export const EmbeddedImageEvidenceSchema = z.object({
     before_relevance: z.string().optional(),
     after_relevance: z.string().optional(),
     context_interpretation: z.string().optional(),
-  }).passthrough()),
-}).passthrough();
+  }).loose()),
+}).loose();
 export type EmbeddedImageEvidence = z.infer<typeof EmbeddedImageEvidenceSchema>;
